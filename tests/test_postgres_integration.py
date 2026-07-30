@@ -2,8 +2,7 @@ import os
 import uuid
 
 import pytest
-
-LifespanManager = pytest.importorskip("asgi_lifespan").LifespanManager
+from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
