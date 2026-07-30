@@ -1,3 +1,5 @@
+"""Persistence contracts and the raw-SQL PostgreSQL implementation."""
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -6,6 +8,8 @@ from typing import Any, Protocol
 
 @dataclass(frozen=True, slots=True)
 class UrlRecord:
+    """Stored URL mapping returned by repository operations."""
+
     original_url: str
     short_code: str
     created_at: datetime
@@ -14,11 +18,15 @@ class UrlRecord:
 
 @dataclass(frozen=True, slots=True)
 class CreateResult:
+    """Result of an idempotent create-or-return-existing operation."""
+
     record: UrlRecord
     created: bool
 
 
 class UrlRepository(Protocol):
+    """Storage interface used by the service and replaceable in tests."""
+
     async def create_or_get(
         self,
         *,
@@ -26,11 +34,17 @@ class UrlRepository(Protocol):
         url_hash: str,
         code_factory: Callable[[], str],
         max_attempts: int = 8,
-    ) -> CreateResult: ...
+    ) -> CreateResult:
+        """Create a mapping or return the existing record for the same URL."""
+        ...
 
-    async def resolve_and_increment(self, short_code: str) -> UrlRecord | None: ...
+    async def resolve_and_increment(self, short_code: str) -> UrlRecord | None:
+        """Resolve a code and atomically increment its click counter."""
+        ...
 
-    async def ping(self) -> bool: ...
+    async def ping(self) -> bool:
+        """Return whether the backing store is responsive."""
+        ...
 
 
 class ShortCodeGenerationError(RuntimeError):
@@ -38,11 +52,14 @@ class ShortCodeGenerationError(RuntimeError):
 
 
 class PostgresUrlRepository:
+    """PostgreSQL repository implemented with asyncpg and parameterized SQL."""
+
     def __init__(self, pool: Any) -> None:
         self._pool = pool
 
     @staticmethod
     def _to_record(row: Any) -> UrlRecord:
+        """Convert an asyncpg row into the domain record used by the API."""
         return UrlRecord(
             original_url=row["original_url"],
             short_code=row["short_code"],
@@ -58,6 +75,7 @@ class PostgresUrlRepository:
         code_factory: Callable[[], str],
         max_attempts: int = 8,
     ) -> CreateResult:
+        """Insert safely under duplicate-URL requests and code collisions."""
         existing = await self._pool.fetchrow(
             """
             SELECT original_url, short_code, created_at, click_count
@@ -71,6 +89,9 @@ class PostgresUrlRepository:
 
         for _ in range(max_attempts):
             short_code = code_factory()
+
+            # PostgreSQL uniqueness constraints arbitrate both short-code
+            # collisions and concurrent attempts to shorten the same URL.
             inserted = await self._pool.fetchrow(
                 """
                 INSERT INTO shortened_urls (short_code, original_url, url_hash)
@@ -85,7 +106,7 @@ class PostgresUrlRepository:
             if inserted is not None:
                 return CreateResult(record=self._to_record(inserted), created=True)
 
-            # A concurrent request may have inserted the same long URL.
+            # A concurrent request may have won the race for this long URL.
             existing = await self._pool.fetchrow(
                 """
                 SELECT original_url, short_code, created_at, click_count
@@ -97,11 +118,12 @@ class PostgresUrlRepository:
             if existing is not None:
                 return CreateResult(record=self._to_record(existing), created=False)
 
-            # Otherwise the generated short code collided. Generate another code.
+            # Otherwise only the generated code collided, so retry with a new one.
 
         raise ShortCodeGenerationError("Unable to generate a unique short code")
 
     async def resolve_and_increment(self, short_code: str) -> UrlRecord | None:
+        """Resolve and count a redirect in one atomic database statement."""
         row = await self._pool.fetchrow(
             """
             UPDATE shortened_urls
@@ -114,4 +136,5 @@ class PostgresUrlRepository:
         return None if row is None else self._to_record(row)
 
     async def ping(self) -> bool:
+        """Run a minimal query used by the health endpoint."""
         return await self._pool.fetchval("SELECT TRUE") is True
