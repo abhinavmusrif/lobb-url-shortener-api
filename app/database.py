@@ -1,3 +1,5 @@
+"""PostgreSQL connection-pool and schema lifecycle management."""
+
 from pathlib import Path
 from typing import Any
 
@@ -5,15 +7,16 @@ from app.config import Settings
 
 
 class Database:
-    """Owns the asyncpg connection pool and schema initialization."""
+    """Own the asyncpg connection pool and schema initialization."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self.pool: Any | None = None
 
     async def connect(self) -> None:
-        # Imported lazily so API unit tests can run without a database driver.
-        # The production dependency is declared in requirements.txt.
+        """Create the shared asyncpg pool used by repository operations."""
+        # Import lazily so API unit tests can run without opening PostgreSQL.
+        # The production dependency remains declared in requirements.txt.
         import asyncpg
 
         self.pool = await asyncpg.create_pool(
@@ -24,6 +27,7 @@ class Database:
         )
 
     async def initialize_schema(self) -> None:
+        """Apply the idempotent table and index definitions from init.sql."""
         if self.pool is None:
             raise RuntimeError("Database pool has not been initialized")
 
@@ -33,6 +37,7 @@ class Database:
             await connection.execute(schema_sql)
 
     async def disconnect(self) -> None:
+        """Close every pooled connection during application shutdown."""
         if self.pool is not None:
             await self.pool.close()
             self.pool = None
