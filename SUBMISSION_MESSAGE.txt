@@ -1,0 +1,30 @@
+Hello,
+
+I have completed the URL Shortener API assessment using FastAPI, PostgreSQL, asyncpg, raw SQL, and Docker.
+
+The submission folder contains:
+- Complete source code
+- README with setup and API usage
+- Project documentation
+- PostgreSQL schema
+- Docker and Docker Compose configuration
+- Unit and PostgreSQL integration tests
+- GitHub Actions CI configuration
+
+The required endpoints are:
+- POST /shorten
+- GET /{short_code}
+
+The project can be started with:
+  docker compose up --build
+
+Swagger documentation is then available at:
+  http://localhost:8000/docs
+
+Google Drive link: [PASTE YOUR VIEWABLE GOOGLE DRIVE LINK HERE]
+GitHub repository: https://github.com/abhinavmusrif/lobb-url-shortener-api
+
+Thank you for reviewing my submission.
+
+Regards,
+Abhinav Musrif
