@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.repository import CreateResult, UrlRecord
 
@@ -28,7 +28,7 @@ class InMemoryUrlRepository:
             record = UrlRecord(
                 original_url=original_url,
                 short_code=code,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 click_count=0,
             )
             self._by_code[code] = record
