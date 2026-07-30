@@ -1,3 +1,5 @@
+"""Typed application configuration loaded from environment variables."""
+
 from functools import lru_cache
 
 from pydantic import Field
@@ -5,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Validate runtime settings from the environment and optional .env file."""
 
     app_name: str = "LOBB URL Shortener API"
     environment: str = "development"
@@ -24,9 +26,11 @@ class Settings(BaseSettings):
 
     @property
     def normalized_public_base_url(self) -> str:
+        """Return a base URL safe for appending a slash and short code."""
         return self.public_base_url.rstrip("/")
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Build settings once and reuse them for the process lifetime."""
     return Settings()
