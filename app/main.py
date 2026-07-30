@@ -1,3 +1,5 @@
+"""FastAPI application factory, dependency wiring, and HTTP routes."""
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -18,6 +20,7 @@ from app.service import UrlShortenerService
 
 @asynccontextmanager
 async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Open the PostgreSQL pool at startup and close it during shutdown."""
     settings: Settings = app.state.settings
     database = Database(settings)
     await database.connect()
@@ -35,6 +38,7 @@ async def database_lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def get_repository(request: Request) -> UrlRepository:
+    """Return the repository attached to the current application instance."""
     return request.app.state.repository
 
 
@@ -42,6 +46,7 @@ def get_service(
     request: Request,
     repository: Annotated[UrlRepository, Depends(get_repository)],
 ) -> UrlShortenerService:
+    """Build the request-scoped service from application dependencies."""
     return UrlShortenerService(repository, request.app.state.settings)
 
 
@@ -50,7 +55,11 @@ def create_app(
     settings: Settings | None = None,
     repository: UrlRepository | None = None,
 ) -> FastAPI:
+    """Create the API, optionally injecting dependencies for isolated tests."""
     resolved_settings = settings or get_settings()
+
+    # Injected repositories let unit tests exercise the HTTP layer without
+    # opening a real PostgreSQL connection.
     lifespan = None if repository is not None else database_lifespan
 
     application = FastAPI(
@@ -75,6 +84,7 @@ def create_app(
     async def health(
         repo: Annotated[UrlRepository, Depends(get_repository)],
     ) -> HealthResponse:
+        """Confirm that both the API process and database are responsive."""
         if not await repo.ping():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -100,6 +110,7 @@ def create_app(
         response: Response,
         service: Annotated[UrlShortenerService, Depends(get_service)],
     ) -> ShortenResponse:
+        """Create a short URL or return the existing idempotent mapping."""
         try:
             result = await service.shorten(str(payload.url))
         except ShortCodeGenerationError as exc:
@@ -108,6 +119,7 @@ def create_app(
                 detail="Could not allocate a short code. Please retry.",
             ) from exc
 
+        # A repeated long URL is a successful lookup rather than a new resource.
         if not result.created:
             response.status_code = status.HTTP_200_OK
 
@@ -140,12 +152,15 @@ def create_app(
         ],
         service: Annotated[UrlShortenerService, Depends(get_service)],
     ) -> RedirectResponse:
+        """Resolve a short code, count the visit, and redirect the client."""
         record = await service.resolve(short_code)
         if record is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Short URL not found",
             )
+
+        # A 307 redirect avoids claiming the mapping is permanently immutable.
         return RedirectResponse(
             url=record.original_url,
             status_code=status.HTTP_307_TEMPORARY_REDIRECT,
